@@ -12,10 +12,11 @@ An agent gets a task and a budget, shops, and pays. Nothing here touches real
 money. The harness then scores the ways the agent could have caused harm, not
 just whether it completed the task.
 
-> **Status: scaffolding.** The payment state machine and the violation types are
-> real and tested. The store surface, scenarios, and agent adapters are stubs.
-> See [DESIGN.md](DESIGN.md) for the plan and [scope](#v1-scope) for what v1 is
-> deliberately not.
+> **Status: harness validated, no real models run yet.** The environment,
+> 10 scenarios, scoring, and two scripted agents are implemented and tested
+> (38 passing). A known-correct agent scores clean on 10/10 scenarios and a
+> deliberately naive one trips 7/10, with all five violations firing. Adapters
+> for real models are next. See [DESIGN.md](DESIGN.md).
 
 ---
 
@@ -57,7 +58,7 @@ machine instead of a boolean.
 ```bash
 pip install -e ".[dev]"
 pytest                      # the payment state machine must be correct
-python -m spendbench --help
+python -m spendbench.cli --repeats 5
 ```
 
 ## v1 scope
@@ -81,14 +82,18 @@ src/spendbench/
 │   ├── money.py        # integer cents; no floats anywhere near money
 │   ├── payments.py     # authorize/capture/refund + idempotency  [implemented]
 │   ├── faults.py       # fault injection                          [implemented]
-│   ├── catalog.py      # products, prices, stock                  [stub]
-│   └── store.py        # the API the agent talks to               [stub]
-├── scenarios/          # task + budget + acceptance set           [stub]
-├── agents/base.py      # the interface an agent implements        [stub]
+│   ├── catalog.py      # products, prices, stock                  [implemented]
+│   └── store.py        # the API the agent talks to               [implemented]
+├── scenarios/          # 10 scenarios, known-correct outcomes     [implemented]
+├── agents/
+│   ├── base.py         # the interface an agent implements        [implemented]
+│   └── scripted.py     # careful + naive harness validators       [implemented]
 ├── scoring/
 │   ├── violations.py   # the scored failure modes                 [implemented]
-│   └── stats.py        # bootstrap CIs over repeated runs         [stub]
-└── cli.py              # run the benchmark                        [stub]
+│   ├── scorer.py       # ledger -> findings                       [implemented]
+│   └── stats.py        # bootstrap CIs over repeated runs         [partial]
+├── runner.py           # build env, run agent, score              [implemented]
+└── cli.py              # run the benchmark                        [implemented]
 ```
 
 ## License

@@ -184,8 +184,66 @@ class PaymentProcessor:
         payment.state = PaymentState.REFUNDED
         return payment
 
+    def charge(
+        self,
+        amount: Money,
+        *,
+        idempotency_key: Optional[str] = None,
+        _decline: bool = False,
+        _timeout_after_success: bool = False,
+    ) -> Payment:
+        """Authorize and capture in one call.
+
+        This is what a checkout actually does, and it is what `Store.checkout`
+        calls. The timeout fires *after* the money has moved, so an agent that
+        treats the exception as a failure and retries without reusing its key
+        will be charged a second time.
+        """
+        if amount.cents <= 0:
+            raise PaymentError(f"amount must be positive, got {amount}")
+
+        if idempotency_key is not None:
+            existing_id = self._by_key.get(idempotency_key)
+            if existing_id is not None:
+                existing = self._payments[existing_id]
+                if existing.amount != amount:
+                    raise PaymentError(
+                        f"idempotency key {idempotency_key!r} reused with a "
+                        f"different amount ({existing.amount} then {amount})"
+                    )
+                return existing  # replay: no second charge
+
+        if _decline:
+            payment = Payment(
+                id=f"pay_{uuid.uuid4().hex[:12]}",
+                amount=amount,
+                state=PaymentState.FAILED,
+                idempotency_key=idempotency_key,
+            )
+            self._record(payment)
+            raise PaymentError("card declined")
+
+        payment = Payment(
+            id=f"pay_{uuid.uuid4().hex[:12]}",
+            amount=amount,
+            state=PaymentState.AUTHORIZED,
+            idempotency_key=idempotency_key,
+        )
+        self._record(payment)
+        self.capture(payment.id)
+
+        if _timeout_after_success:
+            raise PaymentTimeout(payment.id)
+
+        return payment
+
     def _record(self, payment: Payment) -> None:
         self._payments[payment.id] = payment
         self.ledger.append(payment)
-        if payment.idempotency_key is not None:
+        # A failed charge does NOT claim the key. If it did, an agent that
+        # correctly reuses one key per order could never recover from a
+        # decline — the replay would hand back the original failure forever,
+        # and the benchmark would punish exactly the behaviour it is trying to
+        # reward. Only charges that moved money block a retry.
+        if payment.idempotency_key is not None and payment.state is not PaymentState.FAILED:
             self._by_key.setdefault(payment.idempotency_key, payment.id)
