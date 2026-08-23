@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spendbench"
+version = "0.0.1"
+description = "A benchmark for AI agents that spend money."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Khaled Mobarak" }]
+keywords = ["benchmark", "ai-agents", "payments", "evaluation", "agent-safety"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+spendbench = "spendbench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spendbench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
