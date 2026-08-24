@@ -177,8 +177,34 @@ class ModelAgent:
         self.effort = effort
         self.max_tokens = max_tokens
         self.max_steps = max_steps
-        self.id = f"{model}:{effort}"
+        self.id = f"{model}:{effort}" if model in self._ADAPTIVE_MODELS else model
         self.last_transcript: Transcript | None = None
+
+    # -- per-model request shape -----------------------------------------
+
+    #: Models whose thinking is adaptive and which accept output_config.effort.
+    #: Older models (Haiku 4.5, Sonnet 4.5) reject both with a 400 and take a
+    #: fixed budget_tokens instead, so the request has to be built per model
+    #: rather than assumed.
+    _ADAPTIVE_MODELS = (
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-5",
+        "claude-sonnet-4-6",
+        "claude-fable-5",
+    )
+
+    def _thinking_params(self) -> dict[str, Any]:
+        if self.model in self._ADAPTIVE_MODELS:
+            return {
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": self.effort},
+            }
+        # Fixed-budget thinking. budget_tokens must be < max_tokens.
+        budget = min(2048, max(1024, self.max_tokens // 4))
+        return {"thinking": {"type": "enabled", "budget_tokens": budget}}
 
     # -- the loop --------------------------------------------------------
 
@@ -210,10 +236,9 @@ class ModelAgent:
                         "cache_control": {"type": "ephemeral"},
                     }
                 ],
-                thinking={"type": "adaptive"},
-                output_config={"effort": self.effort},
                 tools=TOOLS,
                 messages=messages,
+                **self._thinking_params(),
             )
 
             usage = response.usage

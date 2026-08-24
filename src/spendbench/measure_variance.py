@@ -1,0 +1,160 @@
+"""Run one model across every scenario at high repeats and report variance.
+
+This exists to answer one question before any real matrix is sized: how often
+does the same agent produce a different outcome on the same scenario? A pooled
+bootstrap cannot answer it, and guessing a repeat count instead of measuring one
+is how benchmarks end up reporting noise.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+from .agents.model import ModelAgent, estimate_cost
+from .runner import run_episode
+from .scenarios.registry import all_scenarios
+from .scoring.stats import (
+    clean_rate,
+    decompose,
+    minimum_detectable_effect,
+    recommended_repeats,
+    violation_rate,
+)
+from .scoring.violations import Violation
+
+
+def load_key() -> str | None:
+    """Env var first, then a gitignored .env beside the repo root."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    env_file = Path(__file__).resolve().parents[2] / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("ANTHROPIC_API_KEY"):
+                _, _, value = line.partition("=")
+                value = value.strip().strip('"').strip("'")
+                if value:
+                    return value
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="spendbench-variance")
+    parser.add_argument("--model", default="claude-haiku-4-5")
+    parser.add_argument("--effort", default="medium",
+                        help="ignored on models without effort support")
+    parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--out", default="results/variance.json")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the cost estimate and exit")
+    args = parser.parse_args(argv)
+
+    scenarios = all_scenarios()
+    episodes = len(scenarios) * args.repeats
+
+    print(f"model    {args.model}")
+    print(f"matrix   {len(scenarios)} scenarios x {args.repeats} repeats = {episodes} episodes")
+    print(f"estimate ~{estimate_cost(episodes, args.model)} at list prices\n")
+    if args.dry_run:
+        return 0
+
+    key = load_key()
+    if not key:
+        print("No ANTHROPIC_API_KEY in the environment or in spendbench/.env.",
+              file=sys.stderr)
+        return 2
+
+    try:
+        import anthropic
+    except ImportError:
+        print("pip install anthropic", file=sys.stderr)
+        return 2
+
+    client = anthropic.Anthropic(api_key=key)
+    agent = ModelAgent(client, model=args.model, effort=args.effort)
+
+    results, transcripts, failures = [], [], 0
+    started = time.time()
+    for i, scenario in enumerate(scenarios, 1):
+        for rep in range(args.repeats):
+            try:
+                result = run_episode(scenario, agent)
+            except Exception as exc:  # a dead episode must not kill the run
+                failures += 1
+                print(f"  ! {scenario.id} rep {rep}: {type(exc).__name__}: {exc}")
+                continue
+            results.append(result)
+            if agent.last_transcript is not None:
+                t = agent.last_transcript
+                transcripts.append({
+                    "scenario": t.scenario_id,
+                    "stopped_because": t.stopped_because,
+                    "input_tokens": t.input_tokens,
+                    "output_tokens": t.output_tokens,
+                    "cache_read_tokens": t.cache_read_tokens,
+                })
+        done = len(results)
+        print(f"[{i}/{len(scenarios)}] {scenario.id:26s} {done}/{episodes} episodes")
+
+    elapsed = time.time() - started
+    if not results:
+        print("no episodes completed", file=sys.stderr)
+        return 1
+
+    print(f"\n{len(results)} episodes in {elapsed/60:.1f} min, {failures} failed\n")
+    print(f"clean rate: {clean_rate(results)}\n")
+
+    report = {
+        "model": args.model,
+        "repeats": args.repeats,
+        "episodes": len(results),
+        "failures": failures,
+        "elapsed_seconds": round(elapsed, 1),
+        "violations": {},
+    }
+
+    print(f"{'violation':<20} {'rate':<28} within-var  flips  rec.repeats")
+    print("-" * 82)
+    for violation in Violation:
+        rate = violation_rate(results, violation)
+        d = decompose(results, violation)
+        rec = recommended_repeats(d)
+        print(f"{violation.value:<20} {str(rate):<28} "
+              f"{d.within_var:>9.4f}  {d.flip_fraction:>4.0%}  {rec:>11d}")
+        report["violations"][violation.value] = {
+            "rate": rate.point,
+            "ci": [rate.ci_low, rate.ci_high],
+            "between_sd": d.between_sd,
+            "within_var": d.within_var,
+            "flip_fraction": d.flip_fraction,
+            "recommended_repeats": rec,
+            "per_scenario": {r.scenario_id: r.rate for r in d.per_scenario},
+        }
+
+    overall = max(
+        (decompose(results, v) for v in Violation), key=lambda d: d.flip_fraction
+    )
+    verdict = recommended_repeats(overall)
+    print(f"\nMost inconsistent violation: {overall}")
+    print(f"Repeats justified by the measured inconsistency: {verdict}")
+    print("MDE at that setting, baseline 0.2: "
+          f"{minimum_detectable_effect(0.2, len(scenarios), verdict):.3f}")
+    report["recommended_repeats"] = verdict
+    report["transcript_summary"] = transcripts
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2))
+    print(f"\nwrote {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
