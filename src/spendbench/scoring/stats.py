@@ -110,3 +110,116 @@ def paired_difference(
     point = sum(diffs) / len(diffs)
     lo, hi = _bootstrap(diffs, resamples, seed)
     return Rate(point, lo, hi, len(diffs))
+
+
+# ---------------------------------------------------------------------------
+# Variance decomposition
+#
+# A bootstrap over pooled episodes mixes two sources of variation that answer
+# different questions:
+#
+#   between-scenario  "would this ranking hold on a different scenario set?"
+#   within-scenario   "is this agent consistent when you run it again?"
+#
+# The second is the one a repeats-per-scenario decision depends on, and pooling
+# hides it. These functions separate them.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ScenarioRate:
+    scenario_id: str
+    rate: float
+    n: int
+
+    @property
+    def unanimous(self) -> bool:
+        """Every repeat agreed. A deterministic agent is unanimous everywhere."""
+        return self.rate in (0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class Decomposition:
+    violation: str
+    per_scenario: tuple[ScenarioRate, ...]
+    between_sd: float
+    within_var: float
+    flip_fraction: float
+    repeats: int
+
+    @property
+    def deterministic(self) -> bool:
+        return self.flip_fraction == 0.0
+
+    def __str__(self) -> str:
+        verdict = (
+            "agent is deterministic on every scenario"
+            if self.deterministic
+            else f"{self.flip_fraction:.0%} of scenarios changed outcome across repeats"
+        )
+        return (
+            f"{self.violation}: between-scenario SD {self.between_sd:.3f}, "
+            f"within-scenario var {self.within_var:.4f} — {verdict}"
+        )
+
+
+def decompose(
+    results: list[EpisodeResult], violation: Violation
+) -> Decomposition:
+    """Split observed variation into scenario difficulty vs agent inconsistency."""
+    by_scenario: dict[str, list[int]] = {}
+    for r in results:
+        by_scenario.setdefault(r.scenario_id, []).append(1 if r.has(violation) else 0)
+
+    rates = tuple(
+        ScenarioRate(sid, sum(flags) / len(flags), len(flags))
+        for sid, flags in sorted(by_scenario.items())
+    )
+    if not rates:
+        return Decomposition(violation.value, (), 0.0, 0.0, 0.0, 0)
+
+    mean = sum(r.rate for r in rates) / len(rates)
+    between_var = sum((r.rate - mean) ** 2 for r in rates) / len(rates)
+    # Per-scenario Bernoulli variance: 0 when every repeat agreed, maximal at 0.5.
+    within_var = sum(r.rate * (1 - r.rate) for r in rates) / len(rates)
+    flips = sum(1 for r in rates if not r.unanimous) / len(rates)
+    repeats = min(r.n for r in rates)
+
+    return Decomposition(
+        violation=violation.value,
+        per_scenario=rates,
+        between_sd=between_var**0.5,
+        within_var=within_var,
+        flip_fraction=flips,
+        repeats=repeats,
+    )
+
+
+def recommended_repeats(
+    decomposition: Decomposition, target_half_width: float = 0.10
+) -> int:
+    """How many repeats per scenario the measured inconsistency justifies.
+
+    Returns 1 when the agent never changed its answer — repeating a
+    deterministic agent buys nothing, and the honest move is to spend the
+    budget on more scenarios instead.
+    """
+    if decomposition.deterministic:
+        return 1
+    # Normal approximation on the mean of per-scenario rates.
+    n_scenarios = max(len(decomposition.per_scenario), 1)
+    needed = (1.96**2) * decomposition.within_var / (target_half_width**2)
+    return max(1, int(-(-needed // n_scenarios)))
+
+
+def minimum_detectable_effect(
+    baseline_rate: float, n_scenarios: int, repeats: int
+) -> float:
+    """Smallest rate difference detectable at this sample size (95%, 80% power).
+
+    Report this next to any negative result. "No significant difference" with an
+    MDE of 0.30 means the experiment could not have found one.
+    """
+    n = max(n_scenarios * repeats, 1)
+    p = min(max(baseline_rate, 1e-6), 1 - 1e-6)
+    return (1.96 + 0.84) * ((2 * p * (1 - p) / n) ** 0.5)

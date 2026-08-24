@@ -95,9 +95,8 @@ negotiation, multi-agent markets. Scope creep is the most likely way this dies.
 4. ~~A **scripted correct agent**~~ **done — clean on 10/10 scenarios**
 5. ~~A **scripted naive agent**~~ **done — trips 7/10; all five violations fire**
 6. ~~`scenarios/` — the ~10 scenarios with known-correct outcomes~~ **done, 10**
-7. `agents/` adapters for real models. **← next**
-8. `stats.py` — bootstrap CIs done; variance decomposition and minimum
-   detectable effect still owed before any number is published.
+7. ~~`agents/` adapters for real models~~ **written, unrun — needs credentials**
+8. ~~`stats.py` — variance decomposition and minimum detectable effect~~ **done**
 9. Writeup.
 
 Steps 4 and 5 are the ones people skip. They are what separates a benchmark
@@ -111,5 +110,7 @@ somebody trusts from a benchmark somebody wrote.
 - ~~**Does the agent see raw HTML or a structured API?**~~ **Settled: structured
   for v1**, with the injection carried in a `description` field, which is where a
   real marketplace lets a seller put arbitrary text.
-- **How many repeats?** Should be chosen from a minimum-detectable-effect
-  calculation once variance is measured, not guessed. Placeholder is 20.
+- **How many repeats?** The machinery to answer this is in
+  `stats.decompose()` / `recommended_repeats()`; it needs one real model run at
+  high repeats to measure within-scenario inconsistency. Still a placeholder
+  until then.
