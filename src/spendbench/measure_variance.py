@@ -116,8 +116,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         transcripts_dir.mkdir(parents=True, exist_ok=True)
 
+    # runner.run_episode() deliberately swallows any exception agent.run()
+    # raises and scores the episode anyway (see its docstring) — that's the
+    # right call for an agent that genuinely misbehaves mid-task, but it
+    # means an API/transport failure (rate limit, exhausted credit, network)
+    # looks exactly like a normal completed episode from here, except the
+    # store never got touched. ModelAgent marks these via
+    # transcript.stopped_because = "api_error:...", which is the only way
+    # this loop can tell "the model did nothing" apart from "the request
+    # never landed". Three in a row and it's not noise — stop instead of
+    # quietly burning the rest of the matrix into unusable episodes.
+    API_ERROR_ABORT_THRESHOLD = 3
+
     results, transcripts, failures = [], [], 0
+    consecutive_api_errors = 0
     started = time.time()
+    aborted = False
     for i, scenario in enumerate(scenarios, 1):
         for rep in range(args.repeats):
             try:
@@ -149,8 +163,31 @@ def main(argv: list[str] | None = None) -> int:
                         "cache_read_tokens": t.cache_read_tokens,
                         "steps": _jsonable(t.steps),
                     }, indent=2))
+
+                if t.stopped_because.startswith("api_error:"):
+                    failures += 1
+                    consecutive_api_errors += 1
+                    last_step = t.steps[-1]["payload"] if t.steps else ""
+                    print(f"  ! {scenario.id} rep {rep}: {t.stopped_because}: "
+                          f"{last_step}")
+                    if consecutive_api_errors >= API_ERROR_ABORT_THRESHOLD:
+                        print(
+                            f"\n{consecutive_api_errors} consecutive API "
+                            "failures — stopping early rather than scoring "
+                            "the rest of the matrix as empty episodes. "
+                            "Check your credit balance / rate limit and "
+                            "re-run; already-collected episodes below are "
+                            "still valid.",
+                            file=sys.stderr,
+                        )
+                        aborted = True
+                        break
+                else:
+                    consecutive_api_errors = 0
         done = len(results)
         print(f"[{i}/{len(scenarios)}] {scenario.id:26s} {done}/{episodes} episodes")
+        if aborted:
+            break
 
     elapsed = time.time() - started
     if not results:
@@ -166,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         "episodes": len(results),
         "failures": failures,
         "elapsed_seconds": round(elapsed, 1),
+        "aborted_early": aborted,
         "transcripts_dir": str(transcripts_dir) if transcripts_dir else None,
         "violations": {},
     }

@@ -223,23 +223,38 @@ class ModelAgent:
         transcript.record("task", opening)
 
         for _ in range(self.max_steps):
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=[
-                    {
-                        "type": "text",
-                        "text": SYSTEM_PROMPT,
-                        # The system prompt and tool list are identical across
-                        # every episode, so this prefix caches across the whole
-                        # run rather than being re-billed per episode.
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                tools=TOOLS,
-                messages=messages,
-                **self._thinking_params(),
-            )
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": SYSTEM_PROMPT,
+                            # The system prompt and tool list are identical
+                            # across every episode, so this prefix caches
+                            # across the whole run rather than being
+                            # re-billed per episode.
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    tools=TOOLS,
+                    messages=messages,
+                    **self._thinking_params(),
+                )
+            except Exception as exc:
+                # This is an API/transport failure (rate limit, exhausted
+                # credit, network), not the agent's judgement about money —
+                # runner.run_episode still scores whatever the ledger shows
+                # and swallows this exception by design, so without a marker
+                # here the episode looks identical to one where the agent
+                # genuinely just stopped. Label it so a caller iterating many
+                # episodes (measure_variance) can tell the difference and
+                # stop burning through a run that's failing for a reason that
+                # has nothing to do with the model being measured.
+                transcript.stopped_because = f"api_error:{type(exc).__name__}"
+                transcript.record("api_error", str(exc))
+                raise
 
             usage = response.usage
             transcript.input_tokens += usage.input_tokens
