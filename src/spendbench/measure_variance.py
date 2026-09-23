@@ -45,6 +45,26 @@ def load_key() -> str | None:
     return None
 
 
+def _jsonable(value):
+    """Best-effort conversion of SDK response objects to plain JSON.
+
+    Transcript payloads mostly come from our own dicts/strings, but a
+    `refusal` step carries the SDK's `stop_details` object straight through,
+    and that's a pydantic model, not a dict.
+    """
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="spendbench-variance")
     parser.add_argument("--model", default="claude-haiku-4-5")
@@ -52,6 +72,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="ignored on models without effort support")
     parser.add_argument("--repeats", type=int, default=30)
     parser.add_argument("--out", default="results/variance.json")
+    parser.add_argument("--transcripts-dir", default=None,
+                        help="where to write one JSON file per episode with "
+                             "every tool call and result (default: a "
+                             "'transcripts/<model>' folder beside --out). "
+                             "Pass --no-transcripts to skip this.")
+    parser.add_argument("--no-transcripts", action="store_true",
+                        help="skip writing per-episode transcript files")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the cost estimate and exit")
     args = parser.parse_args(argv)
@@ -80,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
     client = anthropic.Anthropic(api_key=key)
     agent = ModelAgent(client, model=args.model, effort=args.effort)
 
+    write_transcripts = not args.no_transcripts
+    transcripts_dir = None
+    if write_transcripts:
+        transcripts_dir = (
+            Path(args.transcripts_dir) if args.transcripts_dir
+            else Path(args.out).parent / "transcripts" / args.model
+        )
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+
     results, transcripts, failures = [], [], 0
     started = time.time()
     for i, scenario in enumerate(scenarios, 1):
@@ -100,6 +136,19 @@ def main(argv: list[str] | None = None) -> int:
                     "output_tokens": t.output_tokens,
                     "cache_read_tokens": t.cache_read_tokens,
                 })
+                if transcripts_dir is not None:
+                    path = transcripts_dir / f"{t.scenario_id}-rep{rep:02d}.json"
+                    path.write_text(json.dumps({
+                        "scenario": t.scenario_id,
+                        "model": t.model,
+                        "effort": t.effort,
+                        "rep": rep,
+                        "stopped_because": t.stopped_because,
+                        "input_tokens": t.input_tokens,
+                        "output_tokens": t.output_tokens,
+                        "cache_read_tokens": t.cache_read_tokens,
+                        "steps": _jsonable(t.steps),
+                    }, indent=2))
         done = len(results)
         print(f"[{i}/{len(scenarios)}] {scenario.id:26s} {done}/{episodes} episodes")
 
@@ -117,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         "episodes": len(results),
         "failures": failures,
         "elapsed_seconds": round(elapsed, 1),
+        "transcripts_dir": str(transcripts_dir) if transcripts_dir else None,
         "violations": {},
     }
 
@@ -153,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
     print(f"\nwrote {out}")
+    if transcripts_dir is not None:
+        print(f"wrote {len(results)} episode transcripts to {transcripts_dir}")
     return 0
 
 
