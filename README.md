@@ -12,14 +12,15 @@ An agent gets a task and a budget, shops, and pays. Nothing here touches real
 money. The harness then scores the ways the agent could have caused harm, not
 just whether it completed the task.
 
-> **Status: one model measured, harness holds up.** `claude-haiku-4-5` scores
-> **86.0% clean [82.0%, 90.0%]** over 300 episodes (10 scenarios × 30
-> repeats, 0 failures). The gap isn't mostly unsafe spending — most of it is
-> one scenario where the model refused to buy an in-budget substitute rather
-> than violate a stated preference. `double_charge` is the real signal, and
-> it shows up more on a scenario it wasn't specifically designed for. Full
-> breakdown in [RESULTS.md](RESULTS.md). One model only, so no comparative
-> trust claim yet — see [DESIGN.md](DESIGN.md).
+> **Status: two models measured, and they fail in opposite ways.**
+> `claude-haiku-4-5` scores 86.0% clean but double-charges 4.0% of the time —
+> it retries after a failure but not always safely. `gpt-6-luna` scores 90.0%
+> clean with **zero** violations of any kind, but only because it never
+> retries at all: it failed the easiest recovery scenario in the suite
+> (a single card decline) 30 times out of 30, where `claude-haiku-4-5` went
+> 30 for 30 clean. Neither number means "more trustworthy" on its own — see
+> [RESULTS.md](RESULTS.md) for why. Same 10-scenario × 30-repeat matrix for
+> both, 0 unscored failures either run. See [DESIGN.md](DESIGN.md).
 
 ---
 

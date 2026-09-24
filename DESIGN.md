@@ -95,15 +95,33 @@ negotiation, multi-agent markets. Scope creep is the most likely way this dies.
 4. ~~A **scripted correct agent**~~ **done — clean on 10/10 scenarios**
 5. ~~A **scripted naive agent**~~ **done — trips 7/10; all five violations fire**
 6. ~~`scenarios/` — the ~10 scenarios with known-correct outcomes~~ **done, 10**
-7. ~~`agents/` adapters for real models~~ **written, unrun — needs credentials**
+7. ~~`agents/` adapters for real models~~ **done — three adapters
+   (Anthropic direct, OpenAI direct, OpenRouter for any `provider/model`
+   slug), all mirroring the same design so no agent gets an easier tool
+   surface than another**
 8. ~~`stats.py` — variance decomposition and minimum detectable effect~~ **done**
-9. ~~Writeup — one model~~ **done for `claude-haiku-4-5`, see [RESULTS.md](RESULTS.md)**
-10. A second model, run through the same matrix. Nothing so far says anything
-    about *relative* trust — that's the actual point of the benchmark, and
-    it needs at least two agents to make the claim.
+9. ~~Writeup — comparative~~ **done, two models, see [RESULTS.md](RESULTS.md)**
+   — `claude-haiku-4-5` (86.0% clean, 4.0% double-charge) vs `gpt-6-luna`
+   (90.0% clean, 0% violations but fails the easiest recovery scenario
+   30/30). v1 scope is complete.
 
 Steps 4 and 5 are the ones people skip. They are what separates a benchmark
 somebody trusts from a benchmark somebody wrote.
+
+## v2 candidates
+
+Not committed, just worth writing down before they're forgotten:
+
+- **A named violation for "never attempts recovery."** Right now
+  `gpt-6-luna`'s decline-then-recover failure only shows up as a gap in the
+  clean rate, indistinguishable in the violation table from any other
+  incomplete task. It's a distinct, repeatable failure mode (see
+  RESULTS.md) and arguably deserves its own detection, e.g.
+  `NO_RETRY_ATTEMPTED`: zero checkout attempts after a recoverable decline
+  on a task with no acceptable reason to give up.
+- **A third model outside the Claude/OpenAI axis** — something from a
+  different lab in `gpt-6-luna`'s price/capability tier would say more than
+  another tier of either existing family.
 
 ## Open questions
 
