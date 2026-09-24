@@ -15,7 +15,10 @@ import sys
 import time
 from pathlib import Path
 
-from .agents.model import ModelAgent, estimate_cost
+from .agents.model import ModelAgent
+from .agents.model import estimate_cost as _claude_estimate_cost
+from .agents.openai_model import OpenAIModelAgent
+from .agents.openai_model import estimate_cost as _openai_estimate_cost
 from .runner import run_episode
 from .scenarios.registry import all_scenarios
 from .scoring.stats import (
@@ -28,21 +31,58 @@ from .scoring.stats import (
 from .scoring.violations import Violation
 
 
-def load_key() -> str | None:
+def load_key(env_var: str) -> str | None:
     """Env var first, then a gitignored .env beside the repo root."""
-    key = os.environ.get("ANTHROPIC_API_KEY")
+    key = os.environ.get(env_var)
     if key:
         return key
     env_file = Path(__file__).resolve().parents[2] / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             line = line.strip()
-            if line.startswith("ANTHROPIC_API_KEY"):
+            if line.startswith(env_var):
                 _, _, value = line.partition("=")
                 value = value.strip().strip('"').strip("'")
                 if value:
                     return value
     return None
+
+
+#: Which provider a --model string routes to, and everything needed to build
+#: that provider's client and agent. Adding a third provider means adding one
+#: entry here plus its agent module — nothing else in this file changes.
+PROVIDERS = {
+    "anthropic": {
+        "match": lambda model: model.startswith("claude-"),
+        "env_var": "ANTHROPIC_API_KEY",
+        "package": "anthropic",
+        "estimate_cost": _claude_estimate_cost,
+        "make_agent": lambda client, model, effort: ModelAgent(
+            client, model=model, effort=effort
+        ),
+        "make_client": lambda pkg, key: pkg.Anthropic(api_key=key),
+    },
+    "openai": {
+        "match": lambda model: model.startswith("gpt-"),
+        "env_var": "OPENAI_API_KEY",
+        "package": "openai",
+        "estimate_cost": _openai_estimate_cost,
+        "make_agent": lambda client, model, effort: OpenAIModelAgent(
+            client, model=model, effort=effort
+        ),
+        "make_client": lambda pkg, key: pkg.OpenAI(api_key=key),
+    },
+}
+
+
+def provider_for(model: str) -> dict:
+    for provider in PROVIDERS.values():
+        if provider["match"](model):
+            return provider
+    raise SystemExit(
+        f"Don't know which provider '{model}' belongs to. Known prefixes: "
+        + ", ".join(f"{p['env_var']}" for p in PROVIDERS.values())
+    )
 
 
 def _jsonable(value):
@@ -85,27 +125,29 @@ def main(argv: list[str] | None = None) -> int:
 
     scenarios = all_scenarios()
     episodes = len(scenarios) * args.repeats
+    provider = provider_for(args.model)
 
     print(f"model    {args.model}")
     print(f"matrix   {len(scenarios)} scenarios x {args.repeats} repeats = {episodes} episodes")
-    print(f"estimate ~{estimate_cost(episodes, args.model)} at list prices\n")
+    print(f"estimate ~{provider['estimate_cost'](episodes, args.model)} at list prices\n")
     if args.dry_run:
         return 0
 
-    key = load_key()
+    key = load_key(provider["env_var"])
     if not key:
-        print("No ANTHROPIC_API_KEY in the environment or in spendbench/.env.",
+        print(f"No {provider['env_var']} in the environment or in spendbench/.env.",
               file=sys.stderr)
         return 2
 
+    import importlib
     try:
-        import anthropic
+        pkg = importlib.import_module(provider["package"])
     except ImportError:
-        print("pip install anthropic", file=sys.stderr)
+        print(f"pip install {provider['package']}", file=sys.stderr)
         return 2
 
-    client = anthropic.Anthropic(api_key=key)
-    agent = ModelAgent(client, model=args.model, effort=args.effort)
+    client = provider["make_client"](pkg, key)
+    agent = provider["make_agent"](client, args.model, args.effort)
 
     write_transcripts = not args.no_transcripts
     transcripts_dir = None

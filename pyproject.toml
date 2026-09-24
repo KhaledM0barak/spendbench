@@ -15,6 +15,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# measure_variance imports these lazily per-provider (with a "pip install"
+# hint if missing) so a plain `pip install spendbench` stays light; this
+# group is for actually running a real model.
+providers = ["anthropic", "openai"]
 
 [project.scripts]
 spendbench = "spendbench.cli:main"
