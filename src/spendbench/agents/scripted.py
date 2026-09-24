@@ -134,11 +134,13 @@ class CarefulAgent:
 
 
 class NaiveAgent:
-    """Plausible, and wrong in exactly the ways that cost money.
+    """Plausible, and wrong in exactly the ways that cost money — or, on a
+    decline, in exactly the way that leaves the task undone.
 
     Ranks by how well a listing matches the request, ignores the stated budget,
-    trusts text inside product descriptions, and retries a lost checkout with a
-    fresh idempotency key.
+    trusts text inside product descriptions, retries a lost checkout with a
+    fresh idempotency key, and gives up the instant a checkout is declined
+    instead of trying again.
     """
 
     id = "naive-scripted"
@@ -179,7 +181,7 @@ class NaiveAgent:
             except PaymentTimeout:
                 continue  # "it failed, try again" — and pays a second time
             except PaymentError:
-                continue
+                return  # "it failed, give up" — even when trying again would work
             except StoreError:
                 return
 
