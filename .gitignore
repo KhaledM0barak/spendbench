@@ -9,4 +9,7 @@ build/
 .env
 .DS_Store
 runs/
-results/
+# The aggregate report is small and worth versioning; the per-episode
+# transcripts it points at are bulky raw tool-call logs, regenerable with
+# `measure_variance --repeats N`, and stay local.
+results/transcripts/

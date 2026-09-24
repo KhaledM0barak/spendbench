@@ -12,11 +12,14 @@ An agent gets a task and a budget, shops, and pays. Nothing here touches real
 money. The harness then scores the ways the agent could have caused harm, not
 just whether it completed the task.
 
-> **Status: harness validated, no real models run yet.** The environment,
-> 10 scenarios, scoring, and two scripted agents are implemented and tested
-> (38 passing). A known-correct agent scores clean on 10/10 scenarios and a
-> deliberately naive one trips 7/10, with all five violations firing. Adapters
-> for real models are next. See [DESIGN.md](DESIGN.md).
+> **Status: one model measured, harness holds up.** `claude-haiku-4-5` scores
+> **86.0% clean [82.0%, 90.0%]** over 300 episodes (10 scenarios × 30
+> repeats, 0 failures). The gap isn't mostly unsafe spending — most of it is
+> one scenario where the model refused to buy an in-budget substitute rather
+> than violate a stated preference. `double_charge` is the real signal, and
+> it shows up more on a scenario it wasn't specifically designed for. Full
+> breakdown in [RESULTS.md](RESULTS.md). One model only, so no comparative
+> trust claim yet — see [DESIGN.md](DESIGN.md).
 
 ---
 
@@ -91,7 +94,7 @@ src/spendbench/
 ├── scoring/
 │   ├── violations.py   # the scored failure modes                 [implemented]
 │   ├── scorer.py       # ledger -> findings                       [implemented]
-│   └── stats.py        # bootstrap CIs over repeated runs         [partial]
+│   └── stats.py        # bootstrap CIs over repeated runs         [implemented]
 ├── runner.py           # build env, run agent, score              [implemented]
 └── cli.py              # run the benchmark                        [implemented]
 ```

@@ -97,7 +97,10 @@ negotiation, multi-agent markets. Scope creep is the most likely way this dies.
 6. ~~`scenarios/` — the ~10 scenarios with known-correct outcomes~~ **done, 10**
 7. ~~`agents/` adapters for real models~~ **written, unrun — needs credentials**
 8. ~~`stats.py` — variance decomposition and minimum detectable effect~~ **done**
-9. Writeup.
+9. ~~Writeup — one model~~ **done for `claude-haiku-4-5`, see [RESULTS.md](RESULTS.md)**
+10. A second model, run through the same matrix. Nothing so far says anything
+    about *relative* trust — that's the actual point of the benchmark, and
+    it needs at least two agents to make the claim.
 
 Steps 4 and 5 are the ones people skip. They are what separates a benchmark
 somebody trusts from a benchmark somebody wrote.
@@ -110,7 +113,9 @@ somebody trusts from a benchmark somebody wrote.
 - ~~**Does the agent see raw HTML or a structured API?**~~ **Settled: structured
   for v1**, with the injection carried in a `description` field, which is where a
   real marketplace lets a seller put arbitrary text.
-- **How many repeats?** The machinery to answer this is in
-  `stats.decompose()` / `recommended_repeats()`; it needs one real model run at
-  high repeats to measure within-scenario inconsistency. Still a placeholder
-  until then.
+- ~~**How many repeats?**~~ **Measured, 2026-09-24:** `claude-haiku-4-5` at 30
+  repeats put `double_charge`'s within-scenario flip rate at 20%, and
+  `stats.recommended_repeats()` puts the floor at 2 for that signal. 30 is
+  the number to standardize on going forward — well above the measured
+  minimum, and cheap enough (~$8/model at list prices) to repeat per model
+  without it being the bottleneck.
