@@ -19,6 +19,9 @@ from .agents.model import ModelAgent
 from .agents.model import estimate_cost as _claude_estimate_cost
 from .agents.openai_model import OpenAIModelAgent
 from .agents.openai_model import estimate_cost as _openai_estimate_cost
+from .agents.openrouter_model import BASE_URL as _OPENROUTER_BASE_URL
+from .agents.openrouter_model import OpenRouterModelAgent
+from .agents.openrouter_model import estimate_cost as _openrouter_estimate_cost
 from .runner import run_episode
 from .scenarios.registry import all_scenarios
 from .scoring.stats import (
@@ -71,6 +74,23 @@ PROVIDERS = {
             client, model=model, effort=effort
         ),
         "make_client": lambda pkg, key: pkg.OpenAI(api_key=key),
+    },
+    # Slugs of the form "provider/model" (openai/gpt-6-luna,
+    # anthropic/claude-haiku-4.5, ...) route through OpenRouter instead of
+    # a provider's own API — one account, one key, works for any model
+    # OpenRouter carries. This must be checked after the bare-prefix
+    # providers above, since a slug never collides with "claude-"/"gpt-".
+    "openrouter": {
+        "match": lambda model: "/" in model,
+        "env_var": "OPENROUTER_API_KEY",
+        "package": "openai",  # OpenRouter is Chat-Completions-compatible
+        "estimate_cost": _openrouter_estimate_cost,
+        "make_agent": lambda client, model, effort: OpenRouterModelAgent(
+            client, model=model, effort=effort
+        ),
+        "make_client": lambda pkg, key: pkg.OpenAI(
+            base_url=_OPENROUTER_BASE_URL, api_key=key
+        ),
     },
 }
 
@@ -182,9 +202,18 @@ def main(argv: list[str] | None = None) -> int:
                 failures += 1
                 print(f"  ! {scenario.id} rep {rep}: {type(exc).__name__}: {exc}")
                 continue
-            results.append(result)
-            if agent.last_transcript is not None:
-                t = agent.last_transcript
+            t = agent.last_transcript
+            is_api_error = t is not None and t.stopped_because.startswith("api_error:")
+
+            # The whole point of the marker: an api_error episode never saw a
+            # real model turn, so it must not enter the scored population —
+            # scoring it would silently reproduce the exact corruption this
+            # mechanism exists to prevent (see the block comment above). It's
+            # still recorded (transcript, failure count) for visibility.
+            if not is_api_error:
+                results.append(result)
+
+            if t is not None:
                 transcripts.append({
                     "scenario": t.scenario_id,
                     "stopped_because": t.stopped_because,
@@ -206,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
                         "steps": _jsonable(t.steps),
                     }, indent=2))
 
-                if t.stopped_because.startswith("api_error:"):
+                if is_api_error:
                     failures += 1
                     consecutive_api_errors += 1
                     last_step = t.steps[-1]["payload"] if t.steps else ""
