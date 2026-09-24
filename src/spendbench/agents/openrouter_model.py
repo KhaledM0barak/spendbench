@@ -20,6 +20,7 @@ rather than redefined by hand.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from .model import SYSTEM_PROMPT, TOOLS as CLAUDE_TOOLS, Transcript
@@ -31,6 +32,21 @@ DEFAULT_MODEL = "openai/gpt-6-luna"
 DEFAULT_EFFORT = "medium"
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_MAX_STEPS = 24
+
+# New OpenRouter accounts get a temporary per-model rate limit (observed:
+# 20 requests/minute on openai/gpt-6-luna, reported as
+# limit_source: "openrouter_new_account" in the error body). A single
+# episode is several requests (search, view, add_to_cart, checkout,
+# finish), so an unthrottled 300-episode run blows through this in well
+# under a minute of wall-clock time. MIN_REQUEST_INTERVAL paces requests to
+# stay under it proactively; the retry loop in _create_with_retry is the
+# backstop for the burst at the very start of a run, before pacing alone
+# has spread requests out. Both together, rather than either alone: pacing
+# without a retry still fails on the first-minute burst; a retry without
+# pacing just re-triggers the same wall every ~3 requests.
+MIN_REQUEST_INTERVAL = 3.5  # seconds; 60/3.5 ≈ 17 req/min, under the cap
+MAX_RATE_LIMIT_RETRIES = 5
+MAX_RATE_LIMIT_WAIT = 90  # seconds; never wait longer than this on one retry
 
 
 def _to_chat_completions_tools(claude_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -73,6 +89,44 @@ class OpenRouterModelAgent:
         self.max_steps = max_steps
         self.id = f"{model}:{effort}"
         self.last_transcript: Transcript | None = None
+        # Shared across every episode this instance runs — measure_variance
+        # constructs one agent and reuses it for the whole matrix, so pacing
+        # has to persist across episodes, not reset each run() call.
+        self._last_request_at: float = 0.0
+
+    def _create_with_retry(self, messages: list[dict[str, Any]]):
+        """chat.completions.create, paced and retried around the new-account
+        rate limit. See the module-level constants for why both matter."""
+        for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+            wait = MIN_REQUEST_INTERVAL - (time.monotonic() - self._last_request_at)
+            if wait > 0:
+                time.sleep(wait)
+            self._last_request_at = time.monotonic()
+
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=TOOLS,
+                    reasoning_effort=self.effort,
+                    max_completion_tokens=self.max_tokens,
+                )
+            except Exception as exc:
+                if type(exc).__name__ != "RateLimitError" or attempt == MAX_RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(min(self._reset_wait_seconds(exc), MAX_RATE_LIMIT_WAIT))
+
+    @staticmethod
+    def _reset_wait_seconds(exc: Exception, default: float = 20.0) -> float:
+        """Pull X-RateLimit-Reset (unix ms) out of OpenRouter's error body if
+        present; fall back to a flat wait otherwise. Never trust this blindly
+        — a clock-skewed or missing field must still make progress."""
+        try:
+            reset_ms = exc.body["error"]["metadata"]["headers"]["X-RateLimit-Reset"]
+            wait = (int(reset_ms) / 1000) - time.time()
+            return max(wait, 1.0)
+        except Exception:
+            return default
 
     def run(self, scenario: Scenario, store: Store) -> None:
         transcript = Transcript(
@@ -93,13 +147,7 @@ class OpenRouterModelAgent:
 
         for _ in range(self.max_steps):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=TOOLS,
-                    reasoning_effort=self.effort,
-                    max_completion_tokens=self.max_tokens,
-                )
+                response = self._create_with_retry(messages)
             except Exception as exc:
                 # See model.py's identical block for why this is marked
                 # rather than left to look like a genuine empty episode.
