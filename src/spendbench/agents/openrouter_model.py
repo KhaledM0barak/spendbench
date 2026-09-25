@@ -109,7 +109,14 @@ class OpenRouterModelAgent:
                     messages=messages,
                     tools=TOOLS,
                     reasoning_effort=self.effort,
-                    max_completion_tokens=self.max_tokens,
+                    # max_tokens, not max_completion_tokens: this adapter
+                    # runs models from several providers through one API, and
+                    # OpenRouter's own supported_parameters listing shows not
+                    # every model recognizes the newer name (confirmed
+                    # against google/gemini-3.8-flash, which lists max_tokens
+                    # only) — max_tokens is the one every model checked so
+                    # far accepts.
+                    max_tokens=self.max_tokens,
                 )
             except Exception as exc:
                 if type(exc).__name__ != "RateLimitError" or attempt == MAX_RATE_LIMIT_RETRIES:
@@ -298,18 +305,32 @@ def estimate_cost(
     """Rough pre-flight cost estimate in dollars, at OpenRouter list prices.
 
     Same shape as model.estimate_cost / openai_model.estimate_cost. Cross-
-    checked against GET /api/v1/models on 2026-09-24: OpenRouter's rate for
-    openai/gpt-6-luna matches OpenAI's direct pricing exactly (no markup at
-    this tier). If you add a model here, recheck the live price table —
+    checked against GET /api/v1/models on the date noted per entry below —
     OpenRouter's per-model rates aren't guaranteed to track the upstream
-    provider's price 1:1.
+    provider's price 1:1, or to stay put, so recheck the live price table
+    before trusting an old entry for very long.
+
+    An unrecognized model is refused rather than silently priced at
+    whatever's first in the table — this function exists so a run's cost is
+    known before it starts, and a wrong guess here defeats that.
     """
     from ..env.money import Money
 
     prices = {  # (input $/Mtok, output $/Mtok)
+        # checked 2026-09-24, matches OpenAI's direct rate exactly (no markup)
         "openai/gpt-6-luna": (0.10, 0.50),
+        # checked 2026-09-25, matches Google's intro rate through 2026-12-31
+        # (standard rate from 2027-01-01 is 1.5/7.5 — recheck after that)
+        "google/gemini-3.8-flash": (0.75, 3.75),
     }
-    in_price, out_price = prices.get(model, prices["openai/gpt-6-luna"])
+    if model not in prices:
+        raise ValueError(
+            f"no known OpenRouter price for {model!r} — check "
+            "GET https://openrouter.ai/api/v1/models and add it to the "
+            "table in agents/openrouter_model.py:estimate_cost before "
+            "running, so the cost is known before it's spent."
+        )
+    in_price, out_price = prices[model]
 
     total_in = n_episodes * steps_per_episode * input_tokens_per_step
     total_out = n_episodes * steps_per_episode * output_tokens_per_step
