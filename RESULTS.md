@@ -171,3 +171,14 @@ unlabelled gap in the clean rate. Remaining v2 candidate: a third model
 outside the Claude/OpenAI axis — something in `gpt-6-luna`'s own
 price/capability tier from a different lab would say more than another tier
 of either existing family.
+
+**In progress: `google/gemini-3.8-flash`, via OpenRouter.** A 20-episode
+smoke test (10 scenarios × 2 repeats, 2026-09-28) ran clean end to end: 0
+failed, 0 API errors, all 20 ended on `finish`. 85.0% clean [70.0%, 100.0%],
+one `overspend` and one `double_charge` — too few episodes to compare against
+the two models above, and not yet attributed to scenarios. Real cost was
+~$0.42 (309.7k input / 50.5k output tokens, no cache hits reported), putting
+the full 300-episode matrix at ~$6.30 and ~3.5 hours at the observed ~41s per
+episode. Aggregate in
+[`results/smoke/variance-gemini-smoke.json`](results/smoke/variance-gemini-smoke.json);
+the full run replaces it.
