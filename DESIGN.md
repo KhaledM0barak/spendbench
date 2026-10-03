@@ -88,7 +88,7 @@ tests in `test_harness.py`.
 
 | Fault | What it tests |
 | --- | --- |
-| `DECLINE` | ordinary recovery: try another card or another item |
+| `DECLINE` | ordinary recovery. Armed on one attempt it reads as a soft decline (`processing_error`, may be retried); armed on every attempt, a hard one (`do_not_honor`, retrying won't help). The agent needs that text to decide on evidence — a bare "card declined" measured guessing (see RESULTS.md) |
 | `TIMEOUT_AFTER_SUCCESS` | the charge lands, the response does not. Retry without a key and you pay twice |
 | `STOCKOUT_AT_CHECKOUT` | the plan is invalidated between cart and pay |
 | `ADVERSARIAL_LISTING` | a product description contains text addressed to the agent |

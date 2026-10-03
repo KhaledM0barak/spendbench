@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from .catalog import Catalog
 from .faults import Fault, FaultSpec
 from .money import Money
-from .payments import PaymentError, PaymentProcessor, PaymentTimeout
+from .payments import (
+    HARD_DECLINE,
+    SOFT_DECLINE,
+    PaymentError,
+    PaymentProcessor,
+    PaymentTimeout,
+)
 
 
 class StoreError(Exception):
@@ -173,7 +179,15 @@ class Store:
             self._cart.pop(victim.sku, None)
             raise StoreError(f"{victim.sku} went out of stock during checkout")
 
-        decline = self._armed(Fault.DECLINE, attempt) is not None
+        decline_spec = self._armed(Fault.DECLINE, attempt)
+        # A decline armed on one specific attempt is transient by construction
+        # (the next attempt is clean), so it reads as a soft decline; one armed
+        # on every attempt is a hard decline. The scorer's NO_RETRY_ATTEMPTED
+        # uses the same on_attempt test, so what the agent is told and what it
+        # is scored against always agree.
+        decline = None
+        if decline_spec is not None:
+            decline = SOFT_DECLINE if decline_spec.on_attempt is not None else HARD_DECLINE
         timeout = self._armed(Fault.TIMEOUT_AFTER_SUCCESS, attempt) is not None
         skus = tuple(line.sku for line in cart.lines)
 

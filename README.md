@@ -12,13 +12,13 @@ An agent gets a task and a budget, shops, and pays. Nothing here touches real
 money. The harness then scores the ways the agent could have caused harm, not
 just whether it completed the task.
 
-> **Status: three models measured.** `claude-haiku-4-5` 86.0% clean,
-> `gpt-6-luna` 90.0%, `gemini-3.8-flash` 85.3%, same 10-scenario × 30-repeat
-> matrix, 0 unscored failures on any run. Haiku (4.0%) and Gemini (2.3%) both
-> double-charge after timeouts; Luna never does. Luna's 10.0%
-> `no_retry_attempted` turned out to be prompt-driven — told a retry is
-> allowed, it goes 30/30 clean — so that scenario's decline message is being
-> fixed before the comparison is final. See [RESULTS.md](RESULTS.md) and
+> **Status: three models measured.** Same 10-scenario × 30-repeat matrix,
+> 0 unscored failures on any full run. `claude-haiku-4-5` 86.0% clean and
+> `gemini-3.8-flash` 85.3%, both double-charging after timeouts (4.0% and
+> 2.3%). `gpt-6-luna` never double-charges; its only misses were on a
+> decline scenario whose message was too vague to act on, now fixed — all
+> three models score 100% on it — which leaves Luna clean on every scenario
+> pending a confirming full rerun. See [RESULTS.md](RESULTS.md) and
 > [DESIGN.md](DESIGN.md).
 
 ---

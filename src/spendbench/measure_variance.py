@@ -139,11 +139,20 @@ def main(argv: list[str] | None = None) -> int:
                              "Pass --no-transcripts to skip this.")
     parser.add_argument("--no-transcripts", action="store_true",
                         help="skip writing per-episode transcript files")
+    parser.add_argument("--scenario", action="append", default=None,
+                        help="run only this scenario id (repeatable); "
+                             "default is the full registry")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the cost estimate and exit")
     args = parser.parse_args(argv)
 
     scenarios = all_scenarios()
+    if args.scenario:
+        known = {s.id for s in scenarios}
+        unknown = sorted(set(args.scenario) - known)
+        if unknown:
+            raise SystemExit(f"unknown scenario(s): {', '.join(unknown)}")
+        scenarios = [s for s in scenarios if s.id in args.scenario]
     episodes = len(scenarios) * args.repeats
     provider = provider_for(args.model)
 

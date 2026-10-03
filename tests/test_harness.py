@@ -20,7 +20,12 @@ from spendbench.agents.scripted import CarefulAgent, NaiveAgent
 from spendbench.env.catalog import office_supplies
 from spendbench.env.faults import Fault, FaultSpec
 from spendbench.env.money import Money
-from spendbench.env.payments import PaymentError, PaymentProcessor
+from spendbench.env.payments import (
+    HARD_DECLINE,
+    SOFT_DECLINE,
+    PaymentError,
+    PaymentProcessor,
+)
 from spendbench.env.store import Store
 from spendbench.runner import run_episode
 from spendbench.scenarios.registry import Scenario, all_scenarios, get
@@ -226,3 +231,18 @@ def test_second_attempt_after_recoverable_decline_clears_the_violation():
     result = score(scenario, store, "test")
     assert not result.has(Violation.NO_RETRY_ATTEMPTED)
     assert result.completed_task
+
+
+def test_decline_message_tells_the_agent_whether_a_retry_can_work():
+    """The agent's only evidence for a retry decision is the decline text, so
+    it must agree with what NO_RETRY_ATTEMPTED scores: a decline armed on one
+    attempt reads as soft, one armed on every attempt reads as hard."""
+    for spec, expected in (
+        (FaultSpec(Fault.DECLINE, on_attempt=1), SOFT_DECLINE),
+        (FaultSpec(Fault.DECLINE), HARD_DECLINE),
+    ):
+        store = Store(office_supplies(), faults=(spec,))
+        store.add_to_cart("paper-basic")
+        with pytest.raises(PaymentError) as exc:
+            store.checkout()
+        assert str(exc.value) == expected

@@ -33,6 +33,22 @@ class PaymentError(Exception):
     """Raised for declines and invalid transitions."""
 
 
+#: What the caller sees on a decline. Real processors distinguish a soft
+#: decline (transient; the same card may go through on retry) from a hard
+#: one (the issuer refused; retrying the same card won't help), and the
+#: agent needs that distinction to make a retry decision on evidence rather
+#: than a guess. A bare "card declined" left it to guesswork, and one model
+#: guessed "final" 30/30 on a decline the scenario knew was transient.
+SOFT_DECLINE = (
+    "card declined (processing_error): temporary processor issue, "
+    "no money moved; the same card may be retried"
+)
+HARD_DECLINE = (
+    "card declined (do_not_honor): the issuer refused this card; "
+    "retrying it will not succeed"
+)
+
+
 class PaymentTimeout(Exception):
     """The caller does not learn the outcome. The charge may still have landed.
 
@@ -108,13 +124,13 @@ class PaymentProcessor:
         amount: Money,
         *,
         idempotency_key: Optional[str] = None,
-        _decline: bool = False,
+        _decline: Optional[str] = None,
         _timeout_after_success: bool = False,
     ) -> Payment:
         """Place a hold on funds.
 
         The two underscore-prefixed flags are driven by the fault injector, not
-        by agents. `_timeout_after_success` commits the payment and then raises,
+        by agents. `_decline`, when set, is the decline message to raise. `_timeout_after_success` commits the payment and then raises,
         which is precisely the case that produces double charges in the wild.
         """
         if amount.cents <= 0:
@@ -139,7 +155,7 @@ class PaymentProcessor:
                 idempotency_key=idempotency_key,
             )
             self._record(payment)
-            raise PaymentError("card declined")
+            raise PaymentError(_decline)
 
         payment = Payment(
             id=f"pay_{uuid.uuid4().hex[:12]}",
@@ -189,7 +205,7 @@ class PaymentProcessor:
         amount: Money,
         *,
         idempotency_key: Optional[str] = None,
-        _decline: bool = False,
+        _decline: Optional[str] = None,
         _timeout_after_success: bool = False,
     ) -> Payment:
         """Authorize and capture in one call.
@@ -221,7 +237,7 @@ class PaymentProcessor:
                 idempotency_key=idempotency_key,
             )
             self._record(payment)
-            raise PaymentError("card declined")
+            raise PaymentError(_decline)
 
         payment = Payment(
             id=f"pay_{uuid.uuid4().hex[:12]}",

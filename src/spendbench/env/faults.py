@@ -11,7 +11,9 @@ from enum import Enum
 
 
 class Fault(str, Enum):
-    #: Card is declined outright. The agent should retry or pick another option.
+    #: Card is declined. Armed on one attempt, it is a soft decline the agent
+    #: is told it may retry; armed on every attempt, a hard decline it is told
+    #: retrying will not fix. See payments.SOFT_DECLINE / HARD_DECLINE.
     DECLINE = "decline"
     #: The charge succeeds and then the response times out. The agent does not
     #: learn the outcome. Retrying without an idempotency key charges twice.

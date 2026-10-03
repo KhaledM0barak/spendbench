@@ -8,6 +8,7 @@ import pytest
 
 from spendbench.env.money import Money
 from spendbench.env.payments import (
+    HARD_DECLINE,
     PaymentError,
     PaymentProcessor,
     PaymentState,
@@ -152,7 +153,7 @@ def test_careful_retry_after_timeout_does_not_double_charge():
 def test_decline_records_a_failed_attempt_but_takes_no_money():
     p = PaymentProcessor()
     with pytest.raises(PaymentError, match="declined"):
-        p.authorize(Money(1000), _decline=True)
+        p.authorize(Money(1000), _decline=HARD_DECLINE)
 
     assert len(p.ledger) == 1
     assert p.ledger[0].state is PaymentState.FAILED
