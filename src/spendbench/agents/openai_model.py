@@ -136,6 +136,7 @@ class OpenAIModelAgent:
             ]
             if not tool_calls:
                 transcript.stopped_because = "no_tool_use"
+                transcript.record("text", response.output_text)  # see model.py
                 return
 
             for call in tool_calls:

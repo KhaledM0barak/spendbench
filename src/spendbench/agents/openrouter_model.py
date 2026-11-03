@@ -183,6 +183,7 @@ class OpenRouterModelAgent:
             tool_calls = message.tool_calls or []
             if not tool_calls:
                 transcript.stopped_because = "no_tool_use"
+                transcript.record("text", message.content or "")  # see model.py
                 return
 
             for call in tool_calls:

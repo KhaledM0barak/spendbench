@@ -275,7 +275,13 @@ class ModelAgent:
 
             tool_uses = [b for b in response.content if b.type == "tool_use"]
             if not tool_uses:
+                # Record what it said instead: without this, an episode that
+                # ends mid-task on a text-only turn can't be told apart from
+                # a deliberate stop when reading the transcript later.
                 transcript.stopped_because = "no_tool_use"
+                transcript.record(
+                    "text", "".join(b.text for b in response.content if b.type == "text")
+                )
                 return
 
             results = []
